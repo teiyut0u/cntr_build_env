@@ -5,7 +5,7 @@
 #
 #   __UBUNTU_RELEASE__  base image tag, e.g. latest, noble, 24.04
 #
-# The QEMU source is NOT downloaded here; it is bind-mounted at /src.
+# The QEMU source is NOT downloaded here; it is bind-mounted at /build/qemu.
 
 FROM ubuntu:__UBUNTU_RELEASE__
 
@@ -17,10 +17,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    QEMU_SRC=/src
+    LC_ALL=C.UTF-8
 
 # Enable deb-src entries: `apt build-dep` needs them.
+# Then, isntall QEMU's own Build-Depends (gcc, meson, ninja-build, glib, pixman, ...).
 RUN set -eux; \
     if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
         sed -ri 's/^Types: deb([[:space:]]*)$/Types: deb deb-src\1/' \
@@ -40,21 +40,19 @@ RUN set -eux; \
         echo 'error: could not enable deb-src entries' >&2; \
         exit 1; \
     fi; \
-    apt-get update
-
-# QEMU's own Build-Depends (gcc, meson, ninja-build, glib, pixman, ...).
-RUN set -eux; \
+    apt-get update; \
     apt-get build-dep -y qemu; \
     rm -rf /var/lib/apt/lists/*
 
 # The build logic lives in its own script and is baked into the image, so the
 # host side only has to pass mounts/args.  It can also be run by hand:
-#   docker run --rm -v <src>:/src:ro -v <build>:/build \
-#       qemu_builder:latest qemu-build.sh /build/x86_64 -- <configure args>
+#   docker run --rm -v <src>:/build/qemu qemu_builder:latest \
+#       qemu-build.sh -j <jobs> -- <configure args>
 COPY build_in_container.sh /usr/local/bin/qemu-build.sh
 RUN chmod 0755 /usr/local/bin/qemu-build.sh
 
-# /src is the mounted source tree, /build the (usually mounted) build dir.
+# /build/qemu is the mounted source tree, /build/qemu/build the default build
+# directory (see qemu-build.sh --help).
 RUN mkdir -p /build
 WORKDIR /build
 

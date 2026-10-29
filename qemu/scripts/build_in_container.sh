@@ -3,34 +3,39 @@
 # Build QEMU inside the qemu_builder image (installed as
 # /usr/local/bin/qemu-build.sh).
 #
-# Usage:
-#   qemu-build.sh <build-dir> [-j <jobs>] [-- <configure args...>]
-#
-#   <build-dir>     directory to configure and build in; created if missing.
-#                   The build is out-of-tree, so mount it from the host to
-#                   keep the results, e.g. -v $PWD/build:/build.
-#   -j, --jobs N    parallel jobs. Default: $JOBS; if that is unset too,
-#                   ninja picks its own default and make uses `nproc`.
-#   --              everything after it is passed to <source>/configure.
-#
 # Environment:
-#   QEMU_SRC        QEMU source tree inside the container (default: /src).
-#   JOBS            default for -j/--jobs.
-#
-# Example:
-#   docker run --rm -v ~/src/qemu:/src:ro -v $PWD/build:/build \
-#       qemu_builder:noble \
-#       qemu-build.sh /build/x86_64 -j 8 -- --target-list=x86_64-softmmu
+#   JOBS  default for -j/--jobs
 
 set -euo pipefail
 
-src=${QEMU_SRC:-/src}
-build_dir=""
+src=/build/qemu
+build_dir=/build/qemu/build
 jobs=${JOBS:-}
 configure_args=()
 
 usage() {
-    sed -n '3,23p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    cat <<'EOF'
+Usage: qemu-build.sh [options] [-- <configure args...>]
+
+Configure and build QEMU out-of-tree inside the qemu_builder image.
+
+Options:
+  -s, --src DIR        QEMU source tree (default: /build/qemu).
+  -b, --build-dir DIR  directory to configure and build in; created if
+                       missing (default: /build/qemu/build).
+  -j, --jobs N         parallel jobs. Default: $JOBS; if that is unset too,
+                       ninja uses its own default and make uses `nproc`.
+  --                   everything after it is passed to <src>/configure.
+  -h, --help           show this help and exit.
+
+Examples:
+  # build in the default place (source mounted at /build/qemu)
+  docker run --rm -v ~/src/qemu:/build/qemu qemu_builder:latest \
+      qemu-build.sh -j 8 -- --target-list=x86_64-softmmu
+
+  # build somewhere else
+  qemu-build.sh -b /build/out -- --enable-debug
+EOF
 }
 
 die() {
@@ -46,6 +51,16 @@ while [ $# -gt 0 ]; do
             usage
             exit 0
             ;;
+        -s|--src)
+            [ $# -ge 2 ] || die "$1 requires an argument"
+            src=$2
+            shift 2
+            ;;
+        -b|--build-dir)
+            [ $# -ge 2 ] || die "$1 requires an argument"
+            build_dir=$2
+            shift 2
+            ;;
         -j|--jobs)
             [ $# -ge 2 ] || die "$1 requires an argument"
             jobs=$2
@@ -60,21 +75,15 @@ while [ $# -gt 0 ]; do
             die "unknown option: $1 (see --help)"
             ;;
         *)
-            [ -z "$build_dir" ] || die "unexpected extra argument: $1"
-            build_dir=$1
-            shift
+            die "unexpected extra argument: $1 (see --help)"
             ;;
     esac
 done
 
-[ -n "$build_dir" ] || {
-    usage >&2
-    die "the build directory is required"
-}
 if [ -n "$jobs" ] && ! [[ "$jobs" =~ ^[1-9][0-9]*$ ]]; then
     die "invalid job count: '$jobs'"
 fi
-[ -x "$src/configure" ] || die "no QEMU configure script in $src (set QEMU_SRC)"
+[ -x "$src/configure" ] || die "no QEMU configure script in $src (see -s/--src)"
 
 log "creating build directory $build_dir"
 mkdir -p -- "$build_dir"

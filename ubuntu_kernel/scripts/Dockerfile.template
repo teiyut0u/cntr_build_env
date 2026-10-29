@@ -58,17 +58,10 @@ RUN set -eux; \
 # Build dependencies of the exact kernel version we are targeting, plus the
 # extra packages listed in the Ubuntu "build a kernel" how-to:
 #   fakeroot llvm libncurses-dev dwarves
-# build-essential is not part of Build-Depends (build daemons have it
-# implicitly) and is required on a bare container image; it also pulls in
-# dpkg-dev, which `apt source` needs.
-#
-# Everything else the build needs (bc, bison, flex, libssl-dev, libelf-dev,
-# cpio, kmod, rsync, python3, python3-dev, zstd, debhelper, dkms, ...) is
-# installed by `apt build-dep` from the kernel's own Build-Depends.
 RUN set -eux; \
     apt-get build-dep -y linux linux-image-unsigned-"${KERNEL_RELEASE}"; \
     apt-get install -y --no-install-recommends \
-        build-essential fakeroot llvm libncurses-dev dwarves; \
+        fakeroot llvm libncurses-dev dwarves; \
     rm -rf /var/lib/apt/lists/*
 
 # The build logic lives in its own script and is baked into the image, so the
