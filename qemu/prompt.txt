@@ -1,0 +1,37 @@
+FROM ubuntu:__UBUNTU_RELEASE__
+
+# Enable deb-src entries: `apt build-dep` and `apt source` need them.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+        sed -ri 's/^Types: deb([[:space:]]*)$/Types: deb deb-src\1/' \
+            /etc/apt/sources.list.d/ubuntu.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -ri 's/^#[[:space:]]*deb-src/deb-src/' /etc/apt/sources.list; \
+    fi; \
+    deb_src_found=0; \
+    if grep -qs 'deb-src' /etc/apt/sources.list.d/ubuntu.sources; then \
+        deb_src_found=1; \
+    fi; \
+    if [ -f /etc/apt/sources.list ] && grep -qs '^deb-src' /etc/apt/sources.list; then \
+        deb_src_found=1; \
+    fi; \
+    if [ "$deb_src_found" -eq 0 ]; then \
+        echo 'error: could not enable deb-src entries' >&2; \
+        exit 1; \
+    fi; \
+    apt-get update
+
+# Build dependencies of the exact kernel version we are targeting, plus the
+# extra packages listed in the Ubuntu "build a kernel" how-to:
+#   fakeroot llvm libncurses-dev dwarves
+# build-essential is not part of Build-Depends (build daemons have it
+# implicitly) and is required on a bare container image; it also pulls in
+# dpkg-dev, which `apt source` needs.
+#
+# Everything else the build needs is installed by `apt build-dep`.
+RUN set -eux; \
+    apt-get build-dep -y qemu; \
+    rm -rf /var/lib/apt/lists/*
+
+

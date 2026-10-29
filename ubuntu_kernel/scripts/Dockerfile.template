@@ -1,0 +1,91 @@
+# syntax=docker/dockerfile:1
+#
+# Template for an Ubuntu kernel build environment.
+# Render it with build_image.sh, which substitutes:
+#
+#   __KERNEL_RELEASE__  target kernel release, e.g. 6.8.0-45-generic
+#                       (the value of `uname -r` on the target machine)
+#   __UBUNTU_RELEASE__  Ubuntu release/codename whose archive ships that
+#                       kernel, e.g. noble, plucky, resolute
+#
+# Reference:
+# https://ubuntu.com/kernel/docs/how-to/develop-customise/build-kernel/
+#
+# The kernel source is NOT downloaded here. It is either mounted at
+# /build/linux or fetched with `apt source` by build_target.sh.
+
+FROM ubuntu:__UBUNTU_RELEASE__
+
+LABEL org.opencontainers.image.title="ubuntu-kernel-builder" \
+      org.opencontainers.image.description="Ubuntu kernel build environment for __KERNEL_RELEASE__"
+
+# Fail fast in RUN steps that chain commands with ';'.
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG KERNEL_RELEASE=__KERNEL_RELEASE__
+
+# do_linux_main_modules_depends=false keeps the build fast, as recommended
+# for development builds (zfs/v4l2loopback modules are skipped).
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    do_linux_main_modules_depends=false \
+    KERNEL_RELEASE=__KERNEL_RELEASE__
+
+# Enable deb-src entries: `apt build-dep` and `apt source` need them.
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then \
+        sed -ri 's/^Types: deb([[:space:]]*)$/Types: deb deb-src\1/' \
+            /etc/apt/sources.list.d/ubuntu.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+        sed -ri 's/^#[[:space:]]*deb-src/deb-src/' /etc/apt/sources.list; \
+    fi; \
+    deb_src_found=0; \
+    if grep -qs 'deb-src' /etc/apt/sources.list.d/ubuntu.sources; then \
+        deb_src_found=1; \
+    fi; \
+    if [ -f /etc/apt/sources.list ] && grep -qs '^deb-src' /etc/apt/sources.list; then \
+        deb_src_found=1; \
+    fi; \
+    if [ "$deb_src_found" -eq 0 ]; then \
+        echo 'error: could not enable deb-src entries' >&2; \
+        exit 1; \
+    fi; \
+    apt-get update
+
+# Build dependencies of the exact kernel version we are targeting, plus the
+# extra packages listed in the Ubuntu "build a kernel" how-to:
+#   fakeroot llvm libncurses-dev dwarves
+# build-essential is not part of Build-Depends (build daemons have it
+# implicitly) and is required on a bare container image; it also pulls in
+# dpkg-dev, which `apt source` needs.
+#
+# Everything else the build needs (bc, bison, flex, libssl-dev, libelf-dev,
+# cpio, kmod, rsync, python3, python3-dev, zstd, debhelper, dkms, ...) is
+# installed by `apt build-dep` from the kernel's own Build-Depends.
+RUN set -eux; \
+    apt-get build-dep -y linux linux-image-unsigned-"${KERNEL_RELEASE}"; \
+    apt-get install -y --no-install-recommends \
+        build-essential fakeroot llvm libncurses-dev dwarves; \
+    rm -rf /var/lib/apt/lists/*
+
+# The build logic lives in its own script and is baked into the image, so the
+# host side only has to pass mounts/env.  It can also be run by hand:
+#   docker run --rm -v <src>:/build/linux -v <out>:/output \
+#       <image> ubuntu-kernel-build.sh
+COPY build_in_container.sh /usr/local/bin/ubuntu-kernel-build.sh
+
+# /build/linux is the mounted kernel source; Ubuntu writes the .deb files to
+# the parent of the source tree, i.e. /build.  World-writable so the container
+# can run as the host user without leaving root-owned files behind.
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/ubuntu-kernel-build.sh; \
+    command -v setpriv; \
+    mkdir -p /build; \
+    chmod 1777 /build
+
+WORKDIR /build
+
+CMD ["bash"]
