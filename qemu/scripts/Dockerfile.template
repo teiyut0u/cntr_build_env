@@ -46,14 +46,22 @@ RUN set -eux; \
 
 # The build logic lives in its own script and is baked into the image, so the
 # host side only has to pass mounts/args.  It can also be run by hand:
-#   docker run --rm -v <src>:/build/qemu qemu_builder:latest \
+#   docker run --rm -v <src>:/build/qemu \
+#       -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) qemu_builder:latest \
 #       qemu-build.sh -j <jobs> -- <configure args>
 COPY build_in_container.sh /usr/local/bin/qemu-build.sh
-RUN chmod 0755 /usr/local/bin/qemu-build.sh
 
 # /build/qemu is the mounted source tree, /build/qemu/build the default build
-# directory (see qemu-build.sh --help).
-RUN mkdir -p /build
+# directory (see qemu-build.sh --help).  The script chowns the mounted tree and
+# the build directory to HOST_UID:HOST_GID and re-executes itself with setpriv,
+# so the build does not leave root-owned files on the host.  /build is
+# world-writable so that also works when the build runs without root.
+RUN set -eux; \
+    chmod 0755 /usr/local/bin/qemu-build.sh; \
+    command -v setpriv; \
+    mkdir -p /build; \
+    chmod 1777 /build
+
 WORKDIR /build
 
 CMD ["bash"]
