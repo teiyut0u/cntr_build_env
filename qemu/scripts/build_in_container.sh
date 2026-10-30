@@ -196,11 +196,11 @@ log "creating build directory $build_dir"
 mkdir -p -- "$build_dir"
 cd -- "$build_dir"
 
-# detect a --prefix passed through to configure; it wins over
+# detect a --prefix=VALUE passed through to configure; it wins over
 # -i/--install-dir (only a note is printed in that case).
 for arg in ${configure_args[@]+"${configure_args[@]}"}; do
     case "$arg" in
-        --prefix|--prefix=*) is_prefix_given=1 ;;
+        --prefix=*) is_prefix_given=1 ;;
     esac
 done
 
@@ -210,17 +210,14 @@ if [ "$is_prefix_given" = 1 ]; then
             "$install_dir" >&2
     fi
     # Only for the messages: pick the value of the winning --prefix.
-    prev=
     for arg in ${configure_args[@]+"${configure_args[@]}"}; do
         case "$arg" in
             --prefix=*) install_prefix=${arg#--prefix=} ;;
-            *) [ "$prev" != --prefix ] || install_prefix=$arg ;;
         esac
-        prev=$arg
     done
 else
     install_prefix=$install_dir
-    configure_args=(--prefix "$install_dir" ${configure_args[@]+"${configure_args[@]}"})
+    configure_args=("--prefix=$install_dir" ${configure_args[@]+"${configure_args[@]}"})
 fi
 
 # The install prefix created above is only needed when -i/--install-dir is what
